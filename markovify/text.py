@@ -1,9 +1,10 @@
 import functools
 import re
 import json
-import random
+from .validation import positive_int, make_rng
+from math import isfinite
 from .splitters import split_into_sentences
-from .chain import Chain, BEGIN
+from .chain import Chain, BEGIN, GenerationLimitError
 from unidecode import unidecode
 
 DEFAULT_MAX_OVERLAP_RATIO = 0.7
@@ -27,6 +28,7 @@ class Text:
         retain_original=True,
         well_formed=True,
         reject_reg="",
+        *, random_state=None, max_steps=None,
     ):
         """
         input_text: A string.
@@ -51,10 +53,15 @@ class Text:
 
         can_make_sentences = parsed_sentences is not None or input_text is not None
         self.retain_original = retain_original and can_make_sentences
-        self.state_size = state_size
+        self.state_size = positive_int(state_size, 'state_size')
+        if chain is not None and chain.state_size != state_size:
+            raise ValueError('Chain state size mismatch')
+        if chain is None and not can_make_sentences:
+            raise ValueError('A corpus or chain is required')
+        options = dict(random_state=random_state, max_steps=10000 if max_steps is None else max_steps)
 
         if self.retain_original:
-            self.parsed_sentences = parsed_sentences or list(
+            self.parsed_sentences = list(parsed_sentences) if parsed_sentences is not None else list(
                 self.generate_corpus(input_text)
             )
 
@@ -62,11 +69,16 @@ class Text:
             self.rejoined_text = self.sentence_join(
                 map(self.word_join, self.parsed_sentences)
             )
-            self.chain = chain or Chain(self.parsed_sentences, state_size)
+            self.chain = chain or Chain(self.parsed_sentences, state_size, **options)
         else:
             if not chain:
-                parsed = parsed_sentences or self.generate_corpus(input_text)
-            self.chain = chain or Chain(parsed, state_size)
+                parsed = parsed_sentences if parsed_sentences is not None else self.generate_corpus(input_text)
+            self.chain = chain or Chain(parsed, state_size, **options)
+        if chain is not None:
+            if random_state is not None:
+                self.chain.rng = make_rng(random_state)
+            if max_steps is not None:
+                self.chain.max_steps = positive_int(max_steps, 'max_steps')
 
     def compile(self, inplace=False):
         if inplace:
@@ -76,7 +88,7 @@ class Text:
         psent = None
         if hasattr(self, "parsed_sentences"):
             psent = self.parsed_sentences
-        return Text(
+        return type(self)(
             None,
             state_size=self.state_size,
             chain=cchain,
@@ -92,6 +104,10 @@ class Text:
         """
         return {
             "state_size": self.state_size,
+            "well_formed": self.well_formed,
+            "reject_reg": self.reject_pat.pattern,
+            "reject_flags": self.reject_pat.flags,
+            "retain_original": self.retain_original,
             "chain": self.chain.to_json(),
             "parsed_sentences": self.parsed_sentences if self.retain_original else None,
         }
@@ -104,16 +120,21 @@ class Text:
 
     @classmethod
     def from_dict(cls, obj, **kwargs):
-        return cls(
-            None,
+        options = dict(
             state_size=obj["state_size"],
             chain=Chain.from_json(obj["chain"]),
             parsed_sentences=obj.get("parsed_sentences"),
+            retain_original=obj.get("retain_original", True),
+            well_formed=obj.get("well_formed", True),
         )
+        if "reject_reg" in obj:
+            options["reject_reg"] = re.compile(obj["reject_reg"], obj.get("reject_flags", 0))
+        options.update(kwargs)
+        return cls(None, **options)
 
     @classmethod
-    def from_json(cls, json_str):
-        return cls.from_dict(json.loads(json_str))
+    def from_json(cls, json_str, **kwargs):
+        return cls.from_dict(json.loads(json_str), **kwargs)
 
     def sentence_split(self, text):
         """
@@ -210,13 +231,21 @@ class Text:
         If `max_words` or `min_words` are specified, the word count for the
         sentence will be evaluated against the provided limit(s).
         """
-        tries = kwargs.get("tries", DEFAULT_TRIES)
+        tries = positive_int(kwargs.get("tries", DEFAULT_TRIES), "tries", allow_zero=True)
         mor = kwargs.get("max_overlap_ratio", DEFAULT_MAX_OVERLAP_RATIO)
         mot = kwargs.get("max_overlap_total", DEFAULT_MAX_OVERLAP_TOTAL)
         test_output = kwargs.get("test_output", True)
         max_words = kwargs.get("max_words", None)
         min_words = kwargs.get("min_words", None)
 
+        if not isfinite(mor) or not 0 <= mor <= 1:
+            raise ValueError("Invalid overlap ratio")
+        positive_int(mot, "max_overlap_total", allow_zero=True)
+        for name, value in (("min_words", min_words), ("max_words", max_words)):
+            if value is not None:
+                positive_int(value, name, allow_zero=True)
+        if min_words is not None and max_words is not None and min_words > max_words:
+            raise ValueError("min_words exceeds max_words")
         if init_state is None:
             prefix = []
         else:
@@ -227,8 +256,18 @@ class Text:
                 else:
                     break
 
+        limit = self.chain.max_steps
+        if kwargs.get("max_steps") is not None:
+            limit = min(limit, positive_int(kwargs["max_steps"], "max_steps", allow_zero=True))
+        if max_words is not None:
+            if len(prefix) > max_words:
+                return None
+            limit = min(limit, max_words - len(prefix))
         for _ in range(tries):
-            words = prefix + self.chain.walk(init_state)
+            try:
+                words = prefix + self.chain.walk(init_state, max_steps=limit)
+            except GenerationLimitError:
+                continue
             if (max_words is not None and len(words) > max_words) or (
                 min_words is not None and len(words) < min_words
             ):
@@ -277,9 +316,9 @@ class Text:
                 init_states = [(BEGIN,) * (self.state_size - word_count) + split]
 
             else:
-                init_states = self.find_init_states_from_chain(split)
+                init_states = list(self.find_init_states_from_chain(split))
 
-                random.shuffle(init_states)
+                self.chain.rng.shuffle(init_states)
         else:
             err_msg = (
                 f"`make_sentence_with_start` for this model requires a string "
@@ -316,7 +355,7 @@ class Text:
         ]
 
     @classmethod
-    def from_chain(cls, chain_json, corpus=None, parsed_sentences=None):
+    def from_chain(cls, chain_json, corpus=None, parsed_sentences=None, **kwargs):
         """
         Init a Text class based on an existing chain JSON string or object
         If corpus is None, overlap checking won't work.
@@ -327,6 +366,7 @@ class Text:
             parsed_sentences=parsed_sentences,
             state_size=chain.state_size,
             chain=chain,
+            **kwargs,
         )
 
 
