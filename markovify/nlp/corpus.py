@@ -1,6 +1,7 @@
 """Composable corpus transformations and text persistence."""
 import json
 from pathlib import Path
+from .documents import discover_files, read_document
 
 
 class Corpus:
@@ -16,14 +17,26 @@ class Corpus:
         return len(self.texts)
 
     @classmethod
-    def load(cls, path, *, encoding="utf-8", text_field="text"):
-        path = Path(path)
-        with path.open(encoding=encoding) as stream:
-            if path.suffix.lower() == ".jsonl":
-                return cls(json.loads(line)[text_field] for line in stream if line.strip())
-            if path.suffix.lower() == ".txt":
-                return cls(line.rstrip("\r\n") for line in stream)
-        raise ValueError("Expected .txt or .jsonl")
+    def load(cls, path, *, formats=None, recursive=True, encoding="utf-8",
+             text_field="text", errors="raise"):
+        """Load a file, directory or iterable of paths with format detection."""
+        if errors not in ("raise", "skip"):
+            raise ValueError("errors must be 'raise' or 'skip'")
+        texts, sources, report = [], [], []
+        for file in discover_files(path, formats=formats, recursive=recursive):
+            try:
+                entries = read_document(file, encoding=encoding, text_field=text_field)
+                texts.extend(entries)
+                sources.extend([str(file)] * len(entries))
+                report.append(dict(path=str(file), entries=len(entries), status="ok" if any(t.strip() for t in entries) else "empty"))
+            except Exception as exc:
+                if errors == "raise":
+                    raise
+                report.append(dict(path=str(file), entries=0, status="error", error=str(exc)))
+        corpus = cls(texts)
+        corpus.sources = sources
+        corpus.load_report = report
+        return corpus
 
     def save(self, path, *, encoding="utf-8", text_field="text"):
         path = Path(path)
