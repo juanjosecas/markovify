@@ -17,6 +17,7 @@ hdf5 = ["h5py"]
 nlp = ["spacy", "nltk"]
 documents = ["pypdf", "python-docx", "odfpy", "striprtf", "ebooklib"]
 dev = ["pytest", "pytest-cov", "build", "h5py"]
+all = ["h5py","spacy","nltk","pypdf","python-docx","odfpy","striprtf","ebooklib","pytest","pytest-cov","build"]
 
 [project.urls]
 Repository = "https://github.com/juanjosecas/markovify"
