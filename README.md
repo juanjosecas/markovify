@@ -72,7 +72,8 @@ python -m pip install -e ".[all]"
 | documents | pypdf, python-docx, odfpy, striprtf, ebooklib |
 | hdf5 | h5py |
 | dev | pytest, pytest-cov, build, h5py |
-| all | All optional runtime and development dependencies |
+| notebooks | JupyterLab, pandas, matplotlib |
+| all | All optional runtime, development and notebook dependencies |
 
 Verify the imported checkout:
 
@@ -339,6 +340,10 @@ compiled = combined.compile()
 ```
 
 Models must have matching types and state sizes and be uncompiled when combined. Weights must be finite, nonnegative and not all zero. They scale transition counts, not normalized mixture probabilities. compile(inplace=True) modifies the existing model; otherwise compile returns a compiled model.
+
+## Tutorials
+
+See [notebooks/](notebooks/) for seven sequential tutorials covering extraction, NLP, EDA, training, generation, persistence and discrete chains. Install with `python -m pip install -e ".[all]"` and launch `jupyter lab notebooks`.
 
 ## Customization and development
 
