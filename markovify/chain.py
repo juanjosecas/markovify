@@ -2,6 +2,7 @@ import operator
 import bisect
 import json
 import copy
+from .serialization import encode_model, decode_model
 from .validation import positive_int, make_rng
 
 
@@ -163,7 +164,7 @@ class Chain:
         """
         Dump the model as a JSON object, for loading later.
         """
-        return json.dumps(list(self.model.items()))
+        return json.dumps(encode_model(self), allow_nan=False)
 
     @classmethod
     def from_json(cls, json_thing, **kwargs):
@@ -174,6 +175,10 @@ class Chain:
 
         obj = json.loads(json_thing) if isinstance(json_thing, str) else json_thing
 
+        if isinstance(obj, dict) and obj.get('format') == 'markovify.chain':
+            model, state_size, max_steps = decode_model(obj)
+            kwargs.setdefault('max_steps', max_steps)
+            return cls(None, state_size, model, **kwargs)
         if isinstance(obj, list):
             rehydrated = {tuple(item[0]): item[1] for item in obj}
         elif isinstance(obj, dict):
