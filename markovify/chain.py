@@ -1,8 +1,12 @@
-import random
 import operator
 import bisect
 import json
 import copy
+from .validation import positive_int, make_rng
+
+
+class GenerationLimitError(RuntimeError):
+    pass
 
 BEGIN = "___BEGIN__"
 END = "___END__"
@@ -33,7 +37,7 @@ class Chain:
     For example: Sentences.
     """
 
-    def __init__(self, corpus, state_size, model=None):
+    def __init__(self, corpus, state_size, model=None, *, random_state=None, max_steps=10000):
         """
         `corpus`: A list of lists, where each outer list is a "run"
         of the process (e.g., a single sentence), and each inner list
@@ -44,8 +48,12 @@ class Chain:
         `state_size`: An integer indicating the number of items the model
         uses to represent its state. For text generation, 2 or 3 are typical.
         """
-        self.state_size = state_size
-        self.model = model or self.build(corpus, self.state_size)
+        self.state_size = positive_int(state_size, 'state_size')
+        self.max_steps = positive_int(max_steps, 'max_steps')
+        self.rng = make_rng(random_state)
+        self.model = self.build(corpus, state_size) if model is None else model
+        if not self.model or (BEGIN,) * state_size not in self.model:
+            raise ValueError('Model must contain a beginning state')
         self.compiled = (len(self.model) > 0) and (
             type(self.model[tuple([BEGIN] * state_size)]) == list
         )
@@ -56,12 +64,12 @@ class Chain:
         if self.compiled:
             if inplace:
                 return self
-            return Chain(None, self.state_size, model=copy.deepcopy(self.model))
+            return Chain(None, self.state_size, model=copy.deepcopy(self.model), random_state=copy.deepcopy(self.rng), max_steps=self.max_steps)
         mdict = {
             state: compile_next(next_dict) for (state, next_dict) in self.model.items()
         }
         if not inplace:
-            return Chain(None, self.state_size, model=mdict)
+            return Chain(None, self.state_size, model=mdict, random_state=copy.deepcopy(self.rng), max_steps=self.max_steps)
         self.model = mdict
         self.compiled = True
         return self
@@ -79,7 +87,14 @@ class Chain:
         # usage is far higher.
         model = {}
 
+        if corpus is None or isinstance(corpus, (str, bytes)):
+            raise ValueError('Expected a corpus of token sequences')
         for run in corpus:
+            if isinstance(run, (str, bytes)):
+                raise ValueError('Each run must be a token sequence')
+            run = list(run)
+            if any(token in (BEGIN, END) for token in run):
+                raise ValueError('Reserved token in corpus')
             items = ([BEGIN] * state_size) + run + [END]
             for i in range(len(run) + 1):
                 state = tuple(items[i : i + state_size])
@@ -115,31 +130,34 @@ class Chain:
         else:
             choices, weights = zip(*self.model[state].items())
             cumdist = list(accumulate(weights))
-        r = random.random() * cumdist[-1]
+        r = self.rng.random() * cumdist[-1]
         selection = choices[bisect.bisect(cumdist, r)]
         return selection
 
-    def gen(self, init_state=None):
+    def gen(self, init_state=None, *, max_steps=None):
         """
         Starting either with a naive BEGIN state, or the provided `init_state`
         (as a tuple), return a generator that will yield successive items
         until the chain reaches the END state.
         """
         state = init_state or (BEGIN,) * self.state_size
-        while True:
+        limit = self.max_steps if max_steps is None else positive_int(max_steps, 'max_steps', allow_zero=True)
+        for step in range(limit + 1):
             next_word = self.move(state)
             if next_word == END:
                 break
+            if step == limit:
+                raise GenerationLimitError('Generation exceeded max_steps')
             yield next_word
             state = tuple(state[1:]) + (next_word,)
 
-    def walk(self, init_state=None):
+    def walk(self, init_state=None, *, max_steps=None):
         """
         Return a list representing a single run of the Markov model, either
         starting with a naive BEGIN state, or the provided `init_state`
         (as a tuple).
         """
-        return list(self.gen(init_state))
+        return list(self.gen(init_state, max_steps=max_steps))
 
     def to_json(self):
         """
@@ -148,7 +166,7 @@ class Chain:
         return json.dumps(list(self.model.items()))
 
     @classmethod
-    def from_json(cls, json_thing):
+    def from_json(cls, json_thing, **kwargs):
         """
         Given a JSON object or JSON string that was created by `self.to_json`,
         return the corresponding markovify.Chain.
@@ -163,7 +181,9 @@ class Chain:
         else:
             raise ValueError("Object should be dict or list")
 
-        state_size = len(list(rehydrated.keys())[0])
+        if not rehydrated:
+            raise ValueError('Empty model')
+        state_size = len(next(iter(rehydrated)))
 
-        inst = cls(None, state_size, rehydrated)
+        inst = cls(None, state_size, rehydrated, **kwargs)
         return inst
