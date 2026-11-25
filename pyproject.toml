@@ -13,7 +13,8 @@ authors = [{name = "Jeremy Singer-Vine"}]
 dependencies = ["Unidecode"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "build"]
+hdf5 = ["h5py"]
+dev = ["pytest", "pytest-cov", "build", "h5py"]
 
 [project.urls]
 Repository = "https://github.com/juanjosecas/markovify"
