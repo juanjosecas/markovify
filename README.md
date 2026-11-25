@@ -30,10 +30,10 @@ Requires Git and Python.
 python -m pip install "markovify @ git+https://github.com/juanjosecas/markovify.git@master"
 ```
 
-With all optional runtime features:
+With all optional features, including development and testing dependencies:
 
 ```bash
-python -m pip install "markovify[nlp,documents,hdf5] @ git+https://github.com/juanjosecas/markovify.git@master"
+python -m pip install "markovify[all] @ git+https://github.com/juanjosecas/markovify.git@master"
 ```
 
 For reproducibility, replace master with a specific commit SHA.
@@ -46,7 +46,7 @@ cd markovify
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[nlp,documents,hdf5,dev]"
+python -m pip install -e ".[all]"
 ```
 
 On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
@@ -62,7 +62,7 @@ conda create -n markovify python=3.11 pip
 conda activate markovify
 git clone https://github.com/juanjosecas/markovify.git
 cd markovify
-python -m pip install -e ".[nlp,documents,hdf5,dev]"
+python -m pip install -e ".[all]"
 ```
 
 | Extra | Dependencies / purpose |
@@ -72,6 +72,7 @@ python -m pip install -e ".[nlp,documents,hdf5,dev]"
 | documents | pypdf, python-docx, odfpy, striprtf, ebooklib |
 | hdf5 | h5py |
 | dev | pytest, pytest-cov, build, h5py |
+| all | All optional runtime and development dependencies |
 
 Verify the imported checkout:
 
@@ -364,7 +365,7 @@ pyproject.toml      Packaging and optional dependencies
 Run tests and build distributions from the repository root:
 
 ```bash
-python -m pip install -e ".[dev,nlp,documents,hdf5]"
+python -m pip install -e ".[all]"
 python -m pytest
 python -m build
 ```
