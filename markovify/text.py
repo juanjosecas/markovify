@@ -1,4 +1,5 @@
 import functools
+from .constraints import LexicalConstraints, prefix_state
 from .io import PersistenceMixin
 import re
 import json
@@ -247,7 +248,17 @@ class Text(PersistenceMixin):
                 positive_int(value, name, allow_zero=True)
         if min_words is not None and max_words is not None and min_words > max_words:
             raise ValueError("min_words exceeds max_words")
-        if init_state is None:
+        constraints = LexicalConstraints(self, **{key: kwargs[key] for key in (
+            "start_with", "end_with", "include", "exclude", "include_phrase", "match"
+        ) if key in kwargs})
+        if constraints.start:
+            if init_state is not None:
+                raise ValueError("start_with and init_state are mutually exclusive")
+            init_state = prefix_state(self.chain, constraints.start)
+            if init_state is None:
+                return None
+            prefix = list(constraints.start)
+        elif init_state is None:
             prefix = []
         else:
             prefix = list(init_state)
@@ -273,12 +284,35 @@ class Text(PersistenceMixin):
                 min_words is not None and len(words) < min_words
             ):
                 continue  # pragma: no cover # see coveragepy/issues/198
+            if not constraints.accepts(words):
+                continue
             if test_output and hasattr(self, "rejoined_text"):
                 if self.test_sentence_output(words, mor, mot):
                     return self.word_join(words)
             else:
                 return self.word_join(words)
         return None
+
+    def make_sentences(self, n, unique=True, max_attempts=None, **kwargs):
+        """Return up to n sentences using a bounded number of attempts."""
+        n = positive_int(n, "n", allow_zero=True)
+        attempts = max(1, n * 10) if max_attempts is None else positive_int(
+            max_attempts, "max_attempts", allow_zero=True)
+        results, seen = [], set()
+        for _ in range(attempts):
+            if len(results) >= n:
+                break
+            sentence = self.make_sentence(**kwargs)
+            if sentence is not None and (not unique or sentence not in seen):
+                results.append(sentence)
+                seen.add(sentence)
+        return results
+
+    def make_sentence_around(self, phrase, **kwargs):
+        """Generate a sentence containing the phrase at an arbitrary position."""
+        if "include_phrase" in kwargs:
+            raise ValueError("Specify phrase only once")
+        return self.make_sentence(include_phrase=phrase, **kwargs)
 
     def make_short_sentence(self, max_chars, min_chars=0, **kwargs):
         """
