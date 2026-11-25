@@ -4,3 +4,5 @@ from .cleaning import (clean_text, strip_html, normalize_unicode,
                        remove_emails, remove_accents, lowercase)
 from .backends import SpacyNLP, NLTKNLP
 from .corpus import Corpus
+
+from .documents import read_document, discover_files, supported_formats
