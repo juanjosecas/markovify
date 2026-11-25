@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "markovify"
+dynamic = ["version"]
+description = "Extensible Markov chain generator"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Jeremy Singer-Vine"}]
+dependencies = ["Unidecode"]
+
+[project.optional-dependencies]
+hdf5 = ["h5py"]
+dev = ["pytest", "pytest-cov", "build", "h5py"]
+
+[project.urls]
+Repository = "https://github.com/juanjosecas/markovify"
+
+[tool.setuptools.dynamic]
+version = {attr = "markovify.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["markovify*"]

@@ -2,6 +2,7 @@ import operator
 import bisect
 import json
 import copy
+from .io import PersistenceMixin
 from .serialization import encode_model, decode_model
 from .validation import positive_int, make_rng
 
@@ -32,7 +33,7 @@ def compile_next(next_dict):
     return [words, cff]
 
 
-class Chain:
+class Chain(PersistenceMixin):
     """
     A Markov chain representing processes that have both beginnings and ends.
     For example: Sentences.
