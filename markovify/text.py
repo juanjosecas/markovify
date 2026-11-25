@@ -1,4 +1,5 @@
 import functools
+from .io import PersistenceMixin
 import re
 import json
 from .validation import positive_int, make_rng
@@ -16,7 +17,7 @@ class ParamError(Exception):
     pass
 
 
-class Text:
+class Text(PersistenceMixin):
     reject_pat = re.compile(r"(^')|('$)|\s'|'\s|[\"(\(\)\[\])]")
 
     def __init__(
