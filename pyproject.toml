@@ -14,6 +14,7 @@ dependencies = ["Unidecode"]
 
 [project.optional-dependencies]
 hdf5 = ["h5py"]
+nlp = ["spacy", "nltk"]
 dev = ["pytest", "pytest-cov", "build", "h5py"]
 
 [project.urls]
